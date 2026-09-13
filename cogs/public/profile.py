@@ -1,22 +1,53 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+import json
+import os
 
-# Mock storage dictionary (replace with a database in production)
+CONFIG_FILE = "channel_config.json"
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+CHANNEL_CONFIG = load_config()
 PROFILES = {}
 
-CHANNEL_MAPPING = {
-    "male": 123456789012345678,     # Replace with your male channel ID
-    "female": 123456789012345679   # Replace with your female channel ID
-}
-
-class ProfileModal(discord.ui.Modal, title="Create Matchmaking Profile"):
-    name = discord.ui.TextInput(label="Name", placeholder="Your display name...", max_length=50)
-    age = discord.ui.TextInput(label="Age", placeholder="Must be a number...", max_length=3)
-    gender = discord.ui.TextInput(label="Gender (male / female)", placeholder="male or female", max_length=10)
-    sexuality = discord.ui.TextInput(label="Sexuality", placeholder="e.g., heterosexual, bisexual...", max_length=30)
-    hobbies = discord.ui.TextInput(label="Hobbies", style=discord.TextStyle.paragraph, placeholder="Tell us about your hobbies...", max_length=300)
-    looking_for = discord.ui.TextInput(label="Looking For", style=discord.TextStyle.paragraph, placeholder="What kind of partner are you looking for?", max_length=300)
+class ProfileModal(discord.ui.Modal, title="Hoshi — Profile"):
+    name = discord.ui.TextInput(
+        label="What name should we display?",
+        placeholder="Your display name...",
+        max_length=50
+    )
+    age = discord.ui.TextInput(
+        label="Your age",
+        placeholder="Must be a number...",
+        max_length=3
+    )
+    gender = discord.ui.TextInput(
+        label="Gender (male / female)",
+        placeholder="male or female",
+        max_length=10
+    )
+    sexuality = discord.ui.TextInput(
+        label="Sexuality",
+        placeholder="e.g., heterosexual, bisexual...",
+        max_length=30
+    )
+    hobbies = discord.ui.TextInput(
+        label="Your hobbies / interests",
+        style=discord.TextStyle.paragraph,
+        placeholder="Tell us about your hobbies...",
+        max_length=300
+    )
+    looking_for = discord.ui.TextInput(
+        label="What are you looking for in a partner?",
+        style=discord.TextStyle.paragraph,
+        placeholder="What kind of partner are you looking for?",
+        max_length=300
+    )
 
     def __init__(self, image_url: str = None):
         super().__init__()
@@ -32,6 +63,19 @@ class ProfileModal(discord.ui.Modal, title="Create Matchmaking Profile"):
             age_int = int(self.age.value.strip())
         except ValueError:
             await interaction.response.send_message("❌ Age must be a valid number.", ephemeral=True)
+            return
+
+        guild_id_str = str(interaction.guild.id)
+        guild_channels = CHANNEL_CONFIG.get(guild_id_str, {})
+        target_channel_id = guild_channels.get(gender_normalized)
+
+        if not target_channel_id:
+            await interaction.response.send_message(f"❌ The **{gender_normalized}** profile channel hasn't been set by an admin yet using `/channelset`.", ephemeral=True)
+            return
+
+        channel = interaction.client.get_channel(target_channel_id)
+        if not channel:
+            await interaction.response.send_message("❌ Configured channel could not be found. Please ask an admin to reconfigure it.", ephemeral=True)
             return
 
         PROFILES[interaction.user.id] = {
@@ -63,17 +107,10 @@ class ProfileModal(discord.ui.Modal, title="Create Matchmaking Profile"):
         embed.add_field(name="LOOKING FOR", value=self.looking_for.value, inline=False)
         embed.add_field(name="--------------------------------------------------", value=f"liked by\n*No likes yet*\n\nwants to be matched with them\n*None*\n\nmember id: {interaction.user.id}", inline=False)
 
-        target_channel_id = CHANNEL_MAPPING.get(gender_normalized)
-        channel = interaction.client.get_channel(target_channel_id)
-
-        if not channel:
-            await interaction.response.send_message("❌ Profile created locally, but the target channel for your gender could not be found.", ephemeral=True)
-            return
-
         msg = await channel.send(embed=embed, view=MatchProfileView(profile_owner_id=interaction.user.id))
         PROFILES[interaction.user.id]["message_id"] = msg.id
 
-        await interaction.response.send_message("✅ Your profile has been successfully created and posted to the channel!", ephemeral=True)
+        await interaction.response.send_message("✅ Your profile has been successfully created and posted to the designated channel!", ephemeral=True)
 
 
 class MatchProfileView(discord.ui.View):
@@ -124,7 +161,6 @@ class MatchProfileView(discord.ui.View):
         wants_str = ", ".join([f"<@{uid}>" for uid in profile["wants_match"]]) if profile["wants_match"] else "*None*"
 
         embed = interaction.message.embeds[0]
-        # Update the tracking field (last field index)
         embed.set_field_at(
             len(embed.fields) - 1,
             name="--------------------------------------------------",
