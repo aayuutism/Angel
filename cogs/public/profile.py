@@ -26,16 +26,6 @@ class ProfileModal(discord.ui.Modal, title="Hoshi — Profile"):
         placeholder="Must be a number...",
         max_length=3
     )
-    gender = discord.ui.TextInput(
-        label="Gender (male / female)",
-        placeholder="male or female",
-        max_length=10
-    )
-    sexuality = discord.ui.TextInput(
-        label="Sexuality",
-        placeholder="e.g., heterosexual, bisexual...",
-        max_length=30
-    )
     hobbies = discord.ui.TextInput(
         label="Your hobbies / interests",
         style=discord.TextStyle.paragraph,
@@ -49,16 +39,11 @@ class ProfileModal(discord.ui.Modal, title="Hoshi — Profile"):
         max_length=300
     )
 
-    def __init__(self, image_url: str = None):
+    def __init__(self, gender: str):
         super().__init__()
-        self.image_url = image_url
+        self.gender = gender
 
     async def on_submit(self, interaction: discord.Interaction):
-        gender_normalized = self.gender.value.strip().lower()
-        if gender_normalized not in ["male", "female"]:
-            await interaction.response.send_message("❌ Gender must be either **male** or **female** based on server settings.", ephemeral=True)
-            return
-
         try:
             age_int = int(self.age.value.strip())
         except ValueError:
@@ -67,10 +52,10 @@ class ProfileModal(discord.ui.Modal, title="Hoshi — Profile"):
 
         guild_id_str = str(interaction.guild.id)
         guild_channels = CHANNEL_CONFIG.get(guild_id_str, {})
-        target_channel_id = guild_channels.get(gender_normalized)
+        target_channel_id = guild_channels.get(self.gender)
 
         if not target_channel_id:
-            await interaction.response.send_message(f"❌ The **{gender_normalized}** profile channel hasn't been set by an admin yet using `/channelset`.", ephemeral=True)
+            await interaction.response.send_message(f"❌ The **{self.gender}** profile channel hasn't been set by an admin yet using `/channelset`.", ephemeral=True)
             return
 
         channel = interaction.client.get_channel(target_channel_id)
@@ -81,11 +66,9 @@ class ProfileModal(discord.ui.Modal, title="Hoshi — Profile"):
         PROFILES[interaction.user.id] = {
             "name": self.name.value,
             "age": age_int,
-            "gender": gender_normalized,
-            "sexuality": self.sexuality.value,
+            "gender": self.gender,
             "hobbies": self.hobbies.value,
             "looking_for": self.looking_for.value,
-            "image_url": self.image_url,
             "likes": [],
             "wants_match": []
         }
@@ -96,13 +79,10 @@ class ProfileModal(discord.ui.Modal, title="Hoshi — Profile"):
             color=0xffc0cb
         )
         embed.set_author(name=self.name.value, icon_url=interaction.user.display_avatar.url)
-        if self.image_url:
-            embed.set_image(url=self.image_url)
         
         embed.add_field(name="NAME", value=self.name.value, inline=False)
         embed.add_field(name="AGE", value=str(age_int), inline=False)
-        embed.add_field(name="GENDER", value=gender_normalized, inline=False)
-        embed.add_field(name="SEXUALITY", value=self.sexuality.value, inline=False)
+        embed.add_field(name="GENDER", value=self.gender, inline=False)
         embed.add_field(name="HOBBIES", value=self.hobbies.value, inline=False)
         embed.add_field(name="LOOKING FOR", value=self.looking_for.value, inline=False)
         embed.add_field(name="--------------------------------------------------", value=f"liked by\n*No likes yet*\n\nwants to be matched with them\n*None*\n\nmember id: {interaction.user.id}", inline=False)
@@ -175,9 +155,13 @@ class ProfileCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="createprofile", description="Privately create your matchmaking profile.")
-    @app_commands.describe(image_url="Optional link/attachment URL for your profile image")
-    async def createprofile(self, interaction: discord.Interaction, image_url: str = None):
-        modal = ProfileModal(image_url=image_url)
+    @app_commands.choices(gender=[
+        app_commands.Choice(name="Male", value="male"),
+        app_commands.Choice(name="Female", value="female")
+    ])
+    @app_commands.describe(gender="Choose whether this is a male or female profile")
+    async def createprofile(self, interaction: discord.Interaction, gender: str):
+        modal = ProfileModal(gender=gender)
         await interaction.response.send_modal(modal)
 
 async def setup(bot):
